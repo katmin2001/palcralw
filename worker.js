@@ -60,12 +60,22 @@ export default {
 
     let upstream;
     try {
+      // pawchive chan request "khong giong trinh duyet" -> gia lap header Chrome
+      // that de giam kha nang bi tra 404/403/429.
       upstream = await fetch(t.toString(), {
         method: "GET",
         headers: {
-          Accept: "application/json, */*",
-          "User-Agent": "pawcrawl-web/1.0",
+          Accept: "application/json, text/plain, */*",
+          "Accept-Language": "en-US,en;q=0.9,vi;q=0.8",
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+            "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
           Referer: "https://" + t.hostname + "/",
+          Origin: "https://" + t.hostname,
+          "Sec-Fetch-Site": "same-origin",
+          "Sec-Fetch-Mode": "cors",
+          "Sec-Fetch-Dest": "empty",
+          "X-Requested-With": "XMLHttpRequest",
         },
         // API co the tra ve lon (chi muc creator ~2MB gzip) - de Cloudflare nen lai
       });
