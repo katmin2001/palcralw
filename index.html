@@ -1,0 +1,623 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pawcrawl web</title>
+<style>
+  :root{
+    --bg:#0f1115; --panel:#171a21; --panel2:#1e222b; --line:#2a2f3a;
+    --fg:#e7ebf2; --mut:#9aa4b2; --accent:#4c8dff; --accent2:#3a6fd0;
+    --ok:#3fb56b; --warn:#e0a33a; --err:#e0564a; --chip:#232833;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--fg);
+    font:15px/1.5 system-ui,Segoe UI,Roboto,Arial,sans-serif}
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+  button{font:inherit;cursor:pointer;border:1px solid var(--line);
+    background:var(--panel2);color:var(--fg);border-radius:8px;padding:7px 12px}
+  button:hover{border-color:var(--accent)}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+  button.primary:hover{background:var(--accent2)}
+  button.ghost{background:transparent}
+  input,select{font:inherit;background:var(--panel2);color:var(--fg);
+    border:1px solid var(--line);border-radius:8px;padding:7px 10px;outline:none}
+  input:focus,select:focus{border-color:var(--accent)}
+  header{padding:14px 18px;border-bottom:1px solid var(--line);
+    display:flex;align-items:center;gap:12px;position:sticky;top:0;background:var(--bg);z-index:5}
+  header h1{font-size:17px;margin:0;font-weight:700;letter-spacing:.3px}
+  header .sp{flex:1}
+  .wrap{max-width:1080px;margin:0 auto;padding:16px 18px 60px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:14px;margin-bottom:16px}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .grow{flex:1;min-width:160px}
+  .mut{color:var(--mut)}
+  .tiny{font-size:12.5px}
+  .tabs{display:flex;gap:6px;margin-bottom:14px}
+  .tabs button{border-radius:999px}
+  .tabs button.on{background:var(--accent);border-color:var(--accent);color:#fff}
+  .hide{display:none!important}
+  .chip{display:inline-flex;align-items:center;gap:6px;background:var(--chip);
+    border:1px solid var(--line);border-radius:999px;padding:3px 10px;font-size:12.5px}
+  .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px}
+  .card{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:11px}
+  .card h3{margin:0 0 4px;font-size:14.5px}
+  .card .meta{font-size:12px;color:var(--mut);margin-bottom:8px}
+  .card .acts{display:flex;gap:6px;flex-wrap:wrap}
+  .files{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+  .file{background:var(--panel2);border:1px solid var(--line);border-radius:10px;
+    overflow:hidden;position:relative}
+  .file .thumb{width:100%;height:120px;object-fit:cover;background:#0a0c10;display:block}
+  .file .noimg{width:100%;height:120px;display:flex;align-items:center;justify-content:center;
+    color:var(--mut);font-size:12px;background:#0a0c10}
+  .file .cap{padding:7px 8px;font-size:12px;word-break:break-all}
+  .file .pick{position:absolute;top:7px;left:7px;width:20px;height:20px;accent-color:var(--accent)}
+  .file .have{position:absolute;top:6px;right:7px;background:var(--ok);color:#04150b;
+    font-size:10.5px;padding:1px 6px;border-radius:999px}
+  .post{border-top:1px solid var(--line);padding:12px 0}
+  .post:first-child{border-top:0}
+  .post .ph{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;margin-bottom:8px}
+  .post .ph h3{margin:0;font-size:15px}
+  .bar{position:sticky;bottom:0;background:var(--panel);border:1px solid var(--line);
+    border-radius:12px;padding:11px 14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;
+    margin-top:8px;box-shadow:0 -6px 24px rgba(0,0,0,.35)}
+  .prog{height:8px;background:var(--panel2);border-radius:999px;overflow:hidden;flex:1;min-width:120px}
+  .prog > i{display:block;height:100%;width:0;background:var(--accent);transition:width .2s}
+  #log{font:12.5px ui-monospace,Consolas,monospace;color:var(--mut);white-space:pre-wrap;
+    max-height:150px;overflow:auto;margin-top:8px}
+  .warnbox{background:#2a1f14;border:1px solid var(--warn);color:#f0d29a;
+    border-radius:10px;padding:10px 12px;font-size:13px;margin-bottom:14px}
+  .fav-b{color:var(--warn)}
+  kbd{background:var(--panel2);border:1px solid var(--line);border-radius:5px;padding:1px 6px;font-size:12px}
+</style>
+</head>
+<body>
+<header>
+  <h1>🐾 pawcrawl <span class="mut tiny">web</span></h1>
+  <div class="sp"></div>
+  <button class="ghost" id="btnCfg">⚙ Cấu hình</button>
+</header>
+
+<div class="wrap">
+
+  <!-- ------- cau hinh ------- -->
+  <div class="panel hide" id="cfg">
+    <div class="row">
+      <div class="grow">
+        <label class="tiny mut">Proxy URL (Cloudflare Worker) — bắt buộc để quét/tìm</label>
+        <input id="proxy" class="grow" style="width:100%" placeholder="https://pawcrawl-proxy.xxx.workers.dev">
+      </div>
+      <div>
+        <label class="tiny mut">Host</label><br>
+        <select id="host">
+          <option>pawchive.pw</option>
+          <option>pawchive.st</option>
+        </select>
+      </div>
+      <div style="align-self:flex-end">
+        <button class="primary" id="saveCfg">Lưu</button>
+      </div>
+    </div>
+    <div class="tiny mut" style="margin-top:8px">
+      File tải thẳng từ CDN (đã mở CORS). Chỉ phần API (danh sách/tìm kiếm) cần proxy —
+      xem <code>worker.js</code> + README để deploy Worker miễn phí.
+    </div>
+  </div>
+
+  <div class="warnbox hide" id="needProxy">
+    Chưa đặt <b>Proxy URL</b>. Phần tìm/quét cần proxy (API pawchive chặn CORS).
+    Bấm <b>⚙ Cấu hình</b> để dán URL Worker. Xem <code>worker.js</code>.
+  </div>
+
+  <div class="tabs">
+    <button class="on" data-tab="find">🔎 Tìm &amp; Quét</button>
+    <button data-tab="favs">★ Yêu thích</button>
+  </div>
+
+  <!-- ------- tab tim ------- -->
+  <section id="tab-find">
+    <div class="panel">
+      <div class="row">
+        <select id="mode">
+          <option value="link">Dán link creator/post</option>
+          <option value="creator">Tìm creator theo tên</option>
+          <option value="post">Tìm post (toàn site)</option>
+        </select>
+        <input id="q" class="grow" placeholder="https://pawchive.pw/patreon/user/123  hoặc  tên/từ khoá">
+        <select id="svc" title="Lọc theo dịch vụ">
+          <option value="">mọi dịch vụ</option>
+          <option>patreon</option><option>fanbox</option><option>gumroad</option>
+          <option>subscribestar</option><option>fantia</option><option>boosty</option>
+        </select>
+        <button class="primary" id="go">Đi</button>
+      </div>
+      <div class="tiny mut" style="margin-top:6px">
+        Ví dụ link: <code>pawchive.pw/patreon/user/66371728</code> ·
+        một post: <code>.../post/167503494</code>
+      </div>
+    </div>
+
+    <div id="results"></div>
+
+    <div class="panel hide" id="creatorPanel">
+      <div class="row" style="margin-bottom:6px">
+        <h3 style="margin:0" id="cName">Creator</h3>
+        <span class="chip" id="cTag"></span>
+        <button class="ghost" id="favAdd">★ Lưu yêu thích</button>
+        <a id="cOpen" target="_blank" rel="noopener" class="tiny">mở trang gốc ↗</a>
+        <div class="sp" style="flex:1"></div>
+        <label class="tiny mut">Số post nạp:</label>
+        <input id="maxPosts" type="number" min="0" value="60" style="width:80px" title="0 = tất cả">
+        <button id="loadMore">Nạp thêm</button>
+      </div>
+      <div class="row tiny" style="margin-bottom:10px">
+        <button class="ghost" id="selAll">Chọn tất cả</button>
+        <button class="ghost" id="selNone">Bỏ chọn</button>
+        <button class="ghost" id="selImg">Chỉ ảnh</button>
+        <button class="ghost" id="selVid">Chỉ video</button>
+        <span class="mut" id="selInfo"></span>
+      </div>
+      <div id="posts"></div>
+
+      <div class="bar">
+        <button class="primary" id="dl">⬇ Tải các mục đã chọn</button>
+        <button id="stop" class="hide">■ Dừng</button>
+        <div class="prog"><i id="progBar"></i></div>
+        <span class="tiny mut" id="progTxt"></span>
+      </div>
+      <div id="log"></div>
+    </div>
+  </section>
+
+  <!-- ------- tab favs ------- -->
+  <section id="tab-favs" class="hide">
+    <div class="panel">
+      <div class="row">
+        <b>Creator yêu thích</b>
+        <span class="mut tiny">lưu trong trình duyệt này (localStorage)</span>
+        <div class="sp" style="flex:1"></div>
+        <button class="ghost" id="favExport">Xuất JSON</button>
+        <button class="ghost" id="favImport">Nhập JSON</button>
+      </div>
+      <div id="favList" class="cards" style="margin-top:12px"></div>
+      <div class="mut tiny hide" id="favEmpty" style="margin-top:8px">
+        Chưa có creator nào. Vào một creator ở tab Tìm &amp; Quét rồi bấm <b>★ Lưu yêu thích</b>.
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<script>
+"use strict";
+// ============================ cau hinh & tien ich ============================
+const LS = {
+  get(k, d){ try{ const v=localStorage.getItem(k); return v==null?d:JSON.parse(v);}catch{return d;} },
+  set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch{} },
+};
+const CFG = {
+  get proxy(){ return LS.get("pc_proxy",""); },
+  set proxy(v){ LS.set("pc_proxy", v||""); },
+  get host(){ return LS.get("pc_host","pawchive.pw"); },
+  set host(v){ LS.set("pc_host", v||"pawchive.pw"); },
+};
+const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+const el = (t, c, txt) => { const e=document.createElement(t); if(c)e.className=c; if(txt!=null)e.textContent=txt; return e; };
+const enc = encodeURIComponent;
+const IMG_EXT = new Set(["jpg","jpeg","png","gif","webp","bmp","avif","jfif"]);
+const VID_EXT = new Set(["mp4","webm","mov","m4v","mkv","avi","wmv","flv"]);
+
+function extOf(name){ const m=/\.([a-z0-9]+)(?:\?|$)/i.exec(name||""); return m?m[1].toLowerCase():""; }
+function fold(s){ return (s||"").normalize("NFKD").replace(/[̀-ͯ]/g,"").toLowerCase().trim(); }
+function safe(s){ return (s||"").replace(/[<>:"/\|?*]/g,"_").replace(/[\u0000-\u001f]/g,"").replace(/\s+/g," ").trim().slice(0,120) || "_"; }
+function host(){ return CFG.host; }
+
+// bao API qua proxy; file/anh thi khong can (CDN da mo CORS)
+function viaProxy(url){
+  const p = CFG.proxy.trim().replace(/\/+$/,"");
+  if(!p) return url; // se loi CORS - da canh bao truoc
+  return p + "?u=" + enc(url);
+}
+async function apiJson(url){
+  if(!CFG.proxy.trim()) throw new Error("Chưa đặt Proxy URL (⚙ Cấu hình).");
+  const r = await fetch(viaProxy(url), {headers:{Accept:"application/json"}});
+  if(!r.ok) throw new Error("API "+r.status+" — "+url);
+  return r.json();
+}
+function apiBase(){ return "https://"+host()+"/api/v1"; }
+function fileUrl(path, name){ return "https://file."+host()+"/data"+path+"?f="+enc(name||""); }
+function thumbUrl(path){ return "https://img."+host()+"/thumbnail/data"+path; }
+
+// ============================ dan link -> nguon ============================
+function parseLink(raw){
+  raw = (raw||"").trim();
+  let h = host(), path = raw;
+  if(raw.includes("://") || /^[\w.-]+\.[a-z]{2,}\//i.test(raw)){
+    const u = new URL(raw.includes("://") ? raw : "https://"+raw.replace(/^\/+/,""));
+    if(u.hostname) h = u.hostname;
+    path = u.pathname;
+  }
+  let m = path.match(/\/?([A-Za-z0-9_]+)\/user\/([^/?#]+)(?:\/post\/([^/?#]+))?/);
+  if(m) return {host:h, service:m[1], id:m[2], post:m[3]||null};
+  const parts = path.split("/").filter(Boolean);
+  if(parts.length>=2 && !/^\d+$/.test(parts[0]))
+    return {host:h, service:parts[0], id:parts[1], post:parts[2]||null};
+  throw new Error("Không đọc được link. Dạng đúng: pawchive.pw/patreon/user/<id>");
+}
+
+// ============================ chuan hoa post ============================
+function normalizePost(p){
+  const entries=[]; const seen=new Set();
+  if(p.file && p.file.path) entries.push(p.file);
+  for(const a of (p.attachments||[])) if(a && a.path) entries.push(a);
+  const files=[];
+  entries.forEach((e,idx)=>{
+    if(seen.has(e.path)) return; seen.add(e.path);
+    const name = e.name || e.path.split("/").pop();
+    files.push({
+      name, path:e.path, url:fileUrl(e.path,name), thumb:thumbUrl(e.path),
+      ext: extOf(name)||extOf(e.path), idx,
+    });
+  });
+  return {
+    id:String(p.id||"0"),
+    title:p.title||"",
+    published:(p.published||p.added||"").slice(0,19),
+    date:(p.published||p.added||"").slice(0,10),
+    files,
+  };
+}
+
+// ============================ trang thai creator ============================
+let CUR = null; // {service,id,name,host, offset, posts:[], jobs:[]}
+
+async function openCreator(service, id, name){
+  switchTab("find");
+  CUR = {service, id, name:name||id, offset:0, posts:[], jobs:[]};
+  $("#creatorPanel").classList.remove("hide");
+  $("#posts").innerHTML=""; $("#results").innerHTML="";
+  $("#cName").textContent = "…";
+  $("#cTag").textContent = service+"/"+id;
+  $("#cOpen").href = "https://"+host()+"/"+service+"/user/"+id;
+  log("Đang lấy hồ sơ creator…");
+  try{
+    const prof = await apiJson(apiBase()+"/"+service+"/user/"+id+"/profile");
+    CUR.name = (prof && prof.name) || name || id;
+  }catch(e){ CUR.name = name||id; }
+  $("#cName").textContent = CUR.name;
+  refreshFavBtn();
+  await loadMore(true);
+}
+
+async function loadMore(reset){
+  if(!CUR) return;
+  const want = Math.max(0, parseInt($("#maxPosts").value||"0",10));
+  const btn=$("#loadMore"); btn.disabled=true; btn.textContent="Đang nạp…";
+  try{
+    let got=0, empty=false;
+    // nap theo trang 50, dung khi du 'want' (0 = het)
+    while(!empty){
+      const url = apiBase()+"/"+CUR.service+"/user/"+CUR.id+"?o="+CUR.offset;
+      const batch = await apiJson(url);
+      if(!Array.isArray(batch) || batch.length===0){ empty=true; break; }
+      for(const p of batch){ CUR.posts.push(normalizePost(p)); got++; }
+      CUR.offset += 50;
+      if(batch.length<50){ empty=true; }
+      if(want && CUR.posts.length>=want){ break; }
+    }
+    log("Đã có "+CUR.posts.length+" post.");
+    renderPosts();
+  }catch(e){ log("LỖI: "+e.message); }
+  btn.disabled=false; btn.textContent="Nạp thêm";
+}
+
+// ============================ ve danh sach post/file ============================
+function renderPosts(){
+  const root=$("#posts"); root.innerHTML="";
+  CUR.jobs=[];
+  const want = Math.max(0, parseInt($("#maxPosts").value||"0",10));
+  const posts = want ? CUR.posts.slice(0,want) : CUR.posts;
+  for(const post of posts){
+    if(!post.files.length) continue;
+    const box=el("div","post");
+    const ph=el("div","ph");
+    ph.append(el("h3",null,post.title||"(không tiêu đề)"));
+    ph.append(el("span","tiny mut",post.date||""));
+    box.append(ph);
+    const grid=el("div","files");
+    for(const f of post.files){
+      const j = {url:f.url, name:f.name, ext:f.ext, creator:CUR.name,
+        service:CUR.service, cid:CUR.id, postId:post.id, published:post.date};
+      const ji = CUR.jobs.push(j)-1;
+      const cell=el("div","file");
+      const cb=el("input","pick"); cb.type="checkbox"; cb.dataset.j=ji;
+      cb.checked=true; cell.append(cb);
+      if(IMG_EXT.has(f.ext) || VID_EXT.has(f.ext)){
+        const im=el("img","thumb"); im.loading="lazy"; im.src=f.thumb;
+        im.onerror=()=>{ im.replaceWith(Object.assign(el("div","noimg",f.ext.toUpperCase()||"FILE")));};
+        cell.append(im);
+      }else{
+        cell.append(el("div","noimg",(f.ext||"file").toUpperCase()));
+      }
+      cell.append(el("div","cap",f.name));
+      grid.append(cell);
+    }
+    box.append(grid);
+    root.append(box);
+  }
+  updateSelInfo();
+}
+
+function pickboxes(){ return $$("#posts .pick"); }
+function updateSelInfo(){
+  const all=pickboxes(); const on=all.filter(c=>c.checked).length;
+  $("#selInfo").textContent = on+"/"+all.length+" file được chọn";
+}
+$("#posts")?.addEventListener("change",e=>{ if(e.target.classList.contains("pick")) updateSelInfo(); });
+
+// ============================ tim kiem ============================
+let CREATOR_INDEX=null; // giu trong bo nho (12MB - khong cho vao localStorage)
+async function ensureIndex(){
+  if(CREATOR_INDEX) return CREATOR_INDEX;
+  log("Tải chỉ mục creator (một lần, ~2MB)…");
+  CREATOR_INDEX = await apiJson(apiBase()+"/creators");
+  log("Chỉ mục: "+CREATOR_INDEX.length+" creator.");
+  return CREATOR_INDEX;
+}
+async function searchCreators(q, svc){
+  const rows = await ensureIndex();
+  const f = fold(q); const words=f.split(/\s+/).filter(Boolean);
+  const out=[];
+  for(const c of rows){
+    if(svc && c.service!==svc) continue;
+    const name=fold(c.name); let rank;
+    if(name.includes(f)){
+      rank = name===f?0 : name.startsWith(f)?1 : new RegExp("(^|[\\s_.\\-])"+f.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")).test(name)?2:3;
+    } else if(words.length>1 && words.every(w=>name.includes(w))) rank=4;
+    else if(f===String(c.id)) rank=0;
+    else continue;
+    out.push([rank, -(c.favorited||0), c]);
+  }
+  out.sort((a,b)=> a[0]-b[0] || a[1]-b[1]);
+  return out.slice(0,40).map(x=>x[2]);
+}
+async function searchPosts(q, svc){
+  const out=[]; let offset=0;
+  while(out.length<60){
+    const url=apiBase()+"/posts?q="+enc(q)+"&o="+offset;
+    const batch=await apiJson(url);
+    if(!Array.isArray(batch)||!batch.length) break;
+    for(const p of batch){
+      if(svc && p.service!==svc) continue;
+      out.push(p);
+      if(out.length>=60) break;
+    }
+    if(batch.length<50) break;
+    offset+=50;
+  }
+  return out;
+}
+
+function renderCreatorHits(hits){
+  const root=$("#results"); root.innerHTML="";
+  $("#creatorPanel").classList.add("hide");
+  if(!hits.length){ root.append(el("div","mut","Không tìm thấy creator.")); return; }
+  const grid=el("div","cards");
+  for(const c of hits){
+    const card=el("div","card");
+    card.append(el("h3",null,c.name||c.id));
+    card.append(el("div","meta",(c.service||"")+" · id "+c.id+(c.favorited?(" · ★"+c.favorited):"")));
+    const acts=el("div","acts");
+    const open=el("button","primary","Mở & quét"); open.onclick=()=>openCreator(c.service,String(c.id),c.name);
+    const fav=el("button","ghost","★"); fav.title="Lưu yêu thích";
+    fav.onclick=()=>{ addFav({service:c.service,id:String(c.id),name:c.name}); fav.textContent="✓"; };
+    acts.append(open,fav);
+    card.append(acts);
+    grid.append(card);
+  }
+  root.append(grid);
+}
+function renderPostHits(hits){
+  const root=$("#results"); root.innerHTML="";
+  $("#creatorPanel").classList.add("hide");
+  if(!hits.length){ root.append(el("div","mut","Không tìm thấy post.")); return; }
+  const grid=el("div","cards");
+  for(const p of hits){
+    const card=el("div","card");
+    card.append(el("h3",null,p.title||"(không tiêu đề)"));
+    card.append(el("div","meta",(p.service||"")+" · "+(p.user||"")+" · "+String(p.published||p.added||"").slice(0,10)));
+    const acts=el("div","acts");
+    const open=el("button","primary","Mở creator"); open.onclick=()=>openCreator(p.service,String(p.user));
+    acts.append(open);
+    card.append(acts);
+    grid.append(card);
+  }
+  root.append(grid);
+}
+
+// ============================ tai xuong ============================
+let DL_STOP=false, DIR_HANDLE=null;
+const hasFS = "showDirectoryPicker" in window;
+
+async function download(){
+  const jobs = pickboxes().filter(c=>c.checked).map(c=>CUR.jobs[+c.dataset.j]);
+  if(!jobs.length){ log("Chưa chọn file nào."); return; }
+  DL_STOP=false;
+  $("#dl").classList.add("hide"); $("#stop").classList.remove("hide");
+
+  let dir=null, byCreator=null;
+  if(hasFS){
+    try{
+      dir = await window.showDirectoryPicker({mode:"readwrite"});
+    }catch(e){ log("Đã huỷ chọn thư mục."); reset(); return; }
+    // gom theo creator: tao thu muc con
+    byCreator = await dir.getDirectoryHandle(safe(jobs[0].creator||"pawcrawl"), {create:true});
+  }
+
+  let ok=0, err=0, skip=0; const total=jobs.length;
+  for(let i=0;i<jobs.length;i++){
+    if(DL_STOP){ log("⏹ Đã dừng."); break; }
+    const j=jobs[i];
+    const fname = safe((j.published?j.published+"_":"")+j.postId+"_"+j.name);
+    setProg(i,total, fname);
+    try{
+      if(hasFS){
+        // bo qua neu da co
+        try{ await byCreator.getFileHandle(fname); skip++; log("• bỏ qua (đã có): "+fname); continue; }catch{}
+        const resp = await fetch(j.url);
+        if(!resp.ok) throw new Error("HTTP "+resp.status);
+        const fh = await byCreator.getFileHandle(fname, {create:true});
+        const w = await fh.createWritable();
+        await resp.body.pipeTo(w);
+        ok++;
+      }else{
+        const resp = await fetch(j.url);
+        if(!resp.ok) throw new Error("HTTP "+resp.status);
+        const blob = await resp.blob();
+        const a=el("a"); a.href=URL.createObjectURL(blob); a.download=fname;
+        document.body.append(a); a.click(); a.remove();
+        setTimeout(()=>URL.revokeObjectURL(a.href), 4000);
+        ok++;
+      }
+    }catch(e){ err++; log("✗ "+fname+" — "+e.message); }
+  }
+  setProg(total,total,"");
+  log(`Xong: ${ok} tải, ${skip} bỏ qua, ${err} lỗi.`);
+  reset();
+
+  function reset(){ $("#dl").classList.remove("hide"); $("#stop").classList.add("hide"); }
+}
+function setProg(i,total,txt){
+  $("#progBar").style.width = total?Math.round(i/total*100)+"%":"0%";
+  $("#progTxt").textContent = total?(i+"/"+total+(txt?" · "+txt:"")):"";
+}
+function log(m){
+  const box=$("#log");
+  box.textContent += (box.textContent?"\n":"") + new Date().toLocaleTimeString() + "  " + m;
+  box.scrollTop = box.scrollHeight;
+}
+
+// ============================ favorites ============================
+function favs(){ return LS.get("pc_favs", []); }
+function saveFavs(a){ LS.set("pc_favs", a); renderFavs(); }
+function favKey(f){ return f.service+"/"+f.id; }
+function addFav(f){
+  const a=favs();
+  if(a.some(x=>favKey(x)===favKey(f))){ log("Đã có trong yêu thích."); return; }
+  a.unshift({service:f.service, id:String(f.id), name:f.name||f.id, host:host(), at:Date.now()});
+  saveFavs(a); log("★ Đã lưu: "+(f.name||f.id));
+  refreshFavBtn();
+}
+function delFav(key){ saveFavs(favs().filter(x=>favKey(x)!==key)); refreshFavBtn(); }
+function refreshFavBtn(){
+  if(!CUR) return;
+  const on = favs().some(x=>favKey(x)===CUR.service+"/"+CUR.id);
+  $("#favAdd").textContent = on ? "✓ Đã lưu" : "★ Lưu yêu thích";
+}
+function renderFavs(){
+  const root=$("#favList"); root.innerHTML="";
+  const a=favs();
+  $("#favEmpty").classList.toggle("hide", a.length>0);
+  for(const f of a){
+    const card=el("div","card");
+    card.append(el("h3",null,f.name||f.id));
+    card.append(el("div","meta",f.service+" · id "+f.id+(f.host&&f.host!==host()?(" · "+f.host):"")));
+    const acts=el("div","acts");
+    const open=el("button","primary","Mở & quét");
+    open.onclick=()=>openCreator(f.service,f.id,f.name);
+    const del=el("button","ghost","Xoá");
+    del.onclick=()=>delFav(favKey(f));
+    acts.append(open,del); card.append(acts); root.append(card);
+  }
+}
+
+// ============================ su kien UI ============================
+function switchTab(name){
+  $$(".tabs button").forEach(b=>b.classList.toggle("on", b.dataset.tab===name));
+  $("#tab-find").classList.toggle("hide", name!=="find");
+  $("#tab-favs").classList.toggle("hide", name!=="favs");
+  if(name==="favs") renderFavs();
+}
+$$(".tabs button").forEach(b=> b.onclick=()=>switchTab(b.dataset.tab));
+
+$("#btnCfg").onclick=()=>$("#cfg").classList.toggle("hide");
+$("#saveCfg").onclick=()=>{
+  CFG.proxy=$("#proxy").value.trim(); CFG.host=$("#host").value;
+  $("#needProxy").classList.toggle("hide", !!CFG.proxy);
+  $("#cfg").classList.add("hide");
+  CREATOR_INDEX=null; // host co the doi
+  log("Đã lưu cấu hình.");
+};
+
+$("#go").onclick = doSearch;
+$("#q").addEventListener("keydown",e=>{ if(e.key==="Enter") doSearch(); });
+async function doSearch(){
+  const mode=$("#mode").value, q=$("#q").value.trim(), svc=$("#svc").value;
+  if(!q){ return; }
+  $("#results").innerHTML='<div class="mut">Đang tìm…</div>';
+  try{
+    if(mode==="link"){
+      const s=parseLink(q);
+      if(s.host) CFG.host=s.host, $("#host").value=s.host;
+      if(s.post){ // mot post cu the
+        await openCreator(s.service, s.id);
+      }else{
+        await openCreator(s.service, s.id);
+      }
+    }else if(mode==="creator"){
+      renderCreatorHits(await searchCreators(q, svc));
+    }else{
+      renderPostHits(await searchPosts(q, svc));
+    }
+  }catch(e){ $("#results").innerHTML=""; log("LỖI: "+e.message); alert(e.message); }
+}
+
+$("#loadMore").onclick=()=>loadMore(false);
+$("#favAdd").onclick=()=>{ if(CUR) addFav({service:CUR.service,id:CUR.id,name:CUR.name}); };
+$("#dl").onclick=download;
+$("#stop").onclick=()=>{ DL_STOP=true; };
+
+$("#selAll").onclick=()=>{ pickboxes().forEach(c=>c.checked=true); updateSelInfo(); };
+$("#selNone").onclick=()=>{ pickboxes().forEach(c=>c.checked=false); updateSelInfo(); };
+$("#selImg").onclick=()=>{ pickboxes().forEach(c=>c.checked=IMG_EXT.has(CUR.jobs[+c.dataset.j].ext)); updateSelInfo(); };
+$("#selVid").onclick=()=>{ pickboxes().forEach(c=>c.checked=VID_EXT.has(CUR.jobs[+c.dataset.j].ext)); updateSelInfo(); };
+$("#maxPosts").addEventListener("change",()=>{ if(CUR) renderPosts(); });
+
+$("#favExport").onclick=()=>{
+  const blob=new Blob([JSON.stringify(favs(),null,2)],{type:"application/json"});
+  const a=el("a"); a.href=URL.createObjectURL(blob); a.download="pawcrawl-favorites.json";
+  a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),3000);
+};
+$("#favImport").onclick=()=>{
+  const inp=el("input"); inp.type="file"; inp.accept="application/json";
+  inp.onchange=async()=>{
+    try{
+      const arr=JSON.parse(await inp.files[0].text());
+      if(!Array.isArray(arr)) throw new Error("File không đúng định dạng.");
+      const cur=favs(); const map=new Map(cur.map(x=>[favKey(x),x]));
+      for(const f of arr){ if(f&&f.service&&f.id) map.set(f.service+"/"+f.id,{
+        service:f.service,id:String(f.id),name:f.name||f.id,host:f.host||host(),at:f.at||Date.now()}); }
+      saveFavs([...map.values()]); alert("Đã nhập "+arr.length+" mục.");
+    }catch(e){ alert("Lỗi: "+e.message); }
+  };
+  inp.click();
+};
+
+// ============================ khoi tao ============================
+(function init(){
+  $("#proxy").value = CFG.proxy;
+  $("#host").value = CFG.host;
+  $("#needProxy").classList.toggle("hide", !!CFG.proxy);
+  if(!hasFS){
+    log("Trình duyệt không hỗ trợ chọn thư mục (File System Access). "+
+        "File sẽ tải về thư mục Downloads mặc định. Dùng Chrome/Edge để chọn thư mục.");
+  }
+  renderFavs();
+})();
+</script>
+</body>
+</html>
