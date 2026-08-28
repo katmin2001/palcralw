@@ -485,16 +485,75 @@ function buildCell(ji){
   const cell=el("div","file");
   const cb=el("input","pick"); cb.type="checkbox"; cb.dataset.j=ji; cb.checked=!!j.checked; cell.append(cb);
   const view=el("div","view"); view.dataset.j=ji; view.title="Xem trước";
-  if(IMG_EXT.has(j.ext) || VID_EXT.has(j.ext)){
+  if(IMG_EXT.has(j.ext)){
     const im=el("img","thumb"); im.loading="lazy"; im.decoding="async"; im.src=j.thumb;
     im.onerror=()=>{ im.replaceWith(el("div","noimg",(j.ext||"file").toUpperCase())); };
     view.append(im);
-    if(VID_EXT.has(j.ext)) view.append(el("div","play","▶"));
+  }else if(VID_EXT.has(j.ext)){
+    const im=el("img","thumb"); im.decoding="async";
+    const cached=VTHUMBS.get(j.url);
+    if(cached){ im.src=cached; }
+    else{
+      // thumbnail video cua server hay bi TREO (khong load, khong loi) -> co timeout,
+      // qua han thi tu cat 1 frame tu chinh video.
+      let handled=false;
+      const gen=()=>{ if(handled)return; handled=true; im.onerror=null; queueFrame(j,im); };
+      im.onload=()=>{ handled=true; };
+      im.onerror=gen;
+      im.src=j.thumb;
+      setTimeout(()=>{ if(!handled && !im.naturalWidth) gen(); }, 3000);
+    }
+    view.append(im);
+    view.append(el("div","play","▶"));
   }else{
     view.append(el("div","noimg",(j.ext||"file").toUpperCase()));
   }
   cell.append(view); cell.append(el("div","cap",j.name));
   return cell;
+}
+
+// ------- tao thumbnail cho video: tua toi ~1s roi ve 1 frame ra canvas -------
+const VTHUMBS=new Map();          // cache theo url (khong regen khi cuon lai)
+let vpActive=0; const vpQueue=[];
+function queueFrame(j, im){ vpQueue.push([j,im]); pumpFrames(); }
+function pumpFrames(){
+  while(vpActive<2 && vpQueue.length){
+    const [j,im]=vpQueue.shift();
+    if(!im.isConnected) continue;   // o da bi go (cuon qua) -> bo qua
+    vpActive++;
+    grabFrame(j.url, data=>{
+      vpActive--; pumpFrames();
+      if(data){ VTHUMBS.set(j.url,data); if(im.isConnected) im.src=data; }
+      else if(im.isConnected) im.replaceWith(el("div","noimg",(j.ext||"video").toUpperCase()));
+    });
+  }
+}
+function grabFrame(url, cb){
+  const v=document.createElement("video");
+  v.crossOrigin="anonymous"; v.muted=true; v.preload="auto"; v.playsInline=true;
+  let done=false;
+  const finish=(data)=>{ if(done)return; done=true;
+    try{ v.removeAttribute("src"); v.load(); }catch{} cb(data); };
+  const t=setTimeout(()=>finish(null), 12000);
+  v.addEventListener("error", ()=>{ clearTimeout(t); finish(null); });
+  v.addEventListener("loadeddata", ()=>{
+    const at=Math.min(1, (v.duration||2)*0.25) || 0.1;
+    try{ v.currentTime=at; }catch{ draw(); }
+  });
+  v.addEventListener("seeked", draw);
+  function draw(){
+    if(done)return;
+    const w=v.videoWidth, h=v.videoHeight;
+    if(!w||!h){ clearTimeout(t); return finish(null); }
+    try{
+      const s=Math.min(1, 320/Math.max(w,h));
+      const c=document.createElement("canvas");
+      c.width=Math.round(w*s); c.height=Math.round(h*s);
+      c.getContext("2d").drawImage(v,0,0,c.width,c.height);
+      clearTimeout(t); finish(c.toDataURL("image/jpeg",0.7));
+    }catch(e){ clearTimeout(t); finish(null); }  // vd CORS/ codec khong ve duoc
+  }
+  v.src=url;
 }
 function mountGrid(box){
   const h=box._holder; if(!h||h.dataset.mounted==="1")return;
