@@ -39,6 +39,7 @@
   .tabs{display:flex;gap:6px;margin-bottom:14px}
   .tabs button{border-radius:999px}
   .tabs button.on{background:var(--accent);border-color:var(--accent);color:#fff}
+  .fbtn.on{background:var(--accent);border-color:var(--accent);color:#fff}
   .hide{display:none!important}
   .chip{display:inline-flex;align-items:center;gap:6px;background:var(--chip);
     border:1px solid var(--line);border-radius:999px;padding:3px 10px;font-size:12.5px}
@@ -81,7 +82,7 @@
   .post:first-child{border-top:0}
   .post .ph{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;margin-bottom:8px}
   .post .ph h3{margin:0;font-size:15px}
-  .bar{position:sticky;bottom:0;background:var(--panel);border:1px solid var(--line);
+  .bar{position:sticky;bottom:0;z-index:20;background:var(--panel);border:1px solid var(--line);
     border-radius:12px;padding:11px 14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;
     margin-top:8px;box-shadow:0 -6px 24px rgba(0,0,0,.35)}
   .prog{height:8px;background:var(--panel2);border-radius:999px;overflow:hidden;flex:1;min-width:120px}
@@ -184,11 +185,15 @@
         <button id="loadMore">Nạp thêm</button>
       </div>
       <div class="row tiny" style="margin-bottom:10px">
-        <button class="ghost" id="selAll">Chọn tất cả</button>
+        <span class="mut">Hiển thị:</span>
+        <button class="ghost fbtn on" data-f="all">Tất cả</button>
+        <button class="ghost fbtn" data-f="img">Ảnh</button>
+        <button class="ghost fbtn" data-f="gif">GIF</button>
+        <button class="ghost fbtn" data-f="vid">Video</button>
+        <button class="ghost fbtn" data-f="aud">Audio</button>
+        <span class="mut" style="opacity:.4">|</span>
+        <button class="ghost" id="selVisible">Chọn hiển thị</button>
         <button class="ghost" id="selNone">Bỏ chọn</button>
-        <button class="ghost" id="selImg">Chỉ ảnh</button>
-        <button class="ghost" id="selGif">Chỉ GIF</button>
-        <button class="ghost" id="selVid">Chỉ video</button>
         <span class="mut" id="selInfo"></span>
       </div>
       <div id="posts"></div>
@@ -196,6 +201,7 @@
       <div class="bar">
         <button class="primary" id="dl">⬇ Tải các mục đã chọn</button>
         <button id="stop" class="hide">■ Dừng</button>
+        <button class="ghost" id="estimate" title="Ước lượng tổng dung lượng các mục đã chọn">≈ Dung lượng</button>
         <label class="tiny mut" title="Số file tải cùng lúc">luồng
           <input id="conc" type="number" min="1" max="16" value="6" style="width:56px">
         </label>
@@ -367,7 +373,7 @@ let CUR = null; // {service,id,name,host, offset, posts:[], jobs:[]}
 
 async function openCreator(service, id, name){
   switchTab("find");
-  CUR = {service, id, name:name||id, offset:0, posts:[], jobs:[]};
+  CUR = {service, id, name:name||id, offset:0, posts:[], jobs:[], plan:[], unchecked:new Set()};
   $("#creatorPanel").classList.remove("hide");
   $("#posts").innerHTML=""; $("#results").innerHTML="";
   $("#cName").textContent = "…";
@@ -388,80 +394,144 @@ async function loadMore(reset){
   const want = Math.max(0, parseInt($("#maxPosts").value||"0",10));
   const btn=$("#loadMore"); btn.disabled=true; btn.textContent="Đang nạp…";
   try{
-    let got=0, empty=false;
-    // nap theo trang 50, dung khi du 'want' (0 = het)
+    const base = apiBase()+"/"+CUR.service+"/user/"+CUR.id;
+    const PREFETCH = 4;   // nap song song 4 trang/luot -> quet nhanh hon nhieu
+    let empty=false;
     while(!empty){
-      const url = apiBase()+"/"+CUR.service+"/user/"+CUR.id+"?o="+CUR.offset;
-      const batch = await apiJson(url);
-      if(!Array.isArray(batch) || batch.length===0){ empty=true; break; }
-      for(const p of batch){ CUR.posts.push(normalizePost(p)); got++; }
-      CUR.offset += 50;
-      if(batch.length<50){ empty=true; }
-      if(want && CUR.posts.length>=want){ break; }
+      // so trang can them theo 'want' de khong quet thua
+      let n = PREFETCH;
+      if(want){ const left=Math.ceil((want-CUR.posts.length)/50); if(left<=0) break; n=Math.min(n,left); }
+      const offsets=[]; for(let i=0;i<n;i++) offsets.push(CUR.offset+i*50);
+      const pages = await Promise.all(offsets.map(o=>
+        apiJson(base+"?o="+o).catch(()=>[])));
+      CUR.offset += n*50;
+      for(const batch of pages){
+        if(!Array.isArray(batch) || batch.length===0){ empty=true; continue; }
+        for(const p of batch) CUR.posts.push(normalizePost(p));
+        if(batch.length<50) empty=true;  // trang cuoi
+      }
+      $("#loadMore").textContent="Đang nạp… ("+CUR.posts.length+")";
+      if(want && CUR.posts.length>=want) break;
     }
     log("Đã có "+CUR.posts.length+" post.");
-    renderPosts();
+    buildJobs(); renderPosts();
   }catch(e){ log("LỖI: "+e.message); }
   btn.disabled=false; btn.textContent="Nạp thêm";
 }
 
-// ============================ ve danh sach post/file ============================
-function renderPosts(){
-  const root=$("#posts"); root.innerHTML="";
-  CUR.jobs=[];
+// ============================ ve danh sach post/file (ao hoa) ============================
+let DF="all";   // bo loc hien thi: all|img|gif|vid|aud
+let VIS=[];     // cac job index dang hien thi (theo thu tu)
+let mountObs=null;
+
+function catMatch(ext){
+  switch(DF){
+    case "img": return IMG_EXT.has(ext);
+    case "gif": return ext==="gif";
+    case "vid": return VID_EXT.has(ext);
+    case "aud": return AUD_EXT.has(ext);
+    default: return true;
+  }
+}
+function setChecked(job,val){ job.checked=val; if(val) CUR.unchecked.delete(job.url); else CUR.unchecked.add(job.url); }
+
+// Xay danh sach job MOT LAN tu du lieu (model la nguon su that, khong phai DOM).
+function buildJobs(){
+  CUR.jobs=[]; CUR.plan=[];
   const want = Math.max(0, parseInt($("#maxPosts").value||"0",10));
   const posts = want ? CUR.posts.slice(0,want) : CUR.posts;
   for(const post of posts){
     if(!post.files.length) continue;
+    const fidx=[];
+    for(const f of post.files){
+      const job={url:f.url, thumb:f.thumb, name:f.name, ext:f.ext, creator:CUR.name,
+        service:CUR.service, cid:CUR.id, postId:post.id, published:post.date, title:post.title,
+        checked:!CUR.unchecked.has(f.url)};   // giu lua chon qua cac lan render/Nap them
+      fidx.push(CUR.jobs.push(job)-1);
+    }
+    CUR.plan.push({title:post.title, date:post.date, fidx});
+  }
+}
+function recomputeVIS(){
+  VIS=[];
+  for(const pp of CUR.plan) for(const ji of pp.fidx)
+    if(catMatch(CUR.jobs[ji].ext)) VIS.push(ji);
+}
+function buildCell(ji){
+  const j=CUR.jobs[ji];
+  const cell=el("div","file");
+  const cb=el("input","pick"); cb.type="checkbox"; cb.dataset.j=ji; cb.checked=!!j.checked; cell.append(cb);
+  const view=el("div","view"); view.dataset.j=ji; view.title="Xem trước";
+  if(IMG_EXT.has(j.ext) || VID_EXT.has(j.ext)){
+    const im=el("img","thumb"); im.loading="lazy"; im.decoding="async"; im.src=j.thumb;
+    im.onerror=()=>{ im.replaceWith(el("div","noimg",(j.ext||"file").toUpperCase())); };
+    view.append(im);
+    if(VID_EXT.has(j.ext)) view.append(el("div","play","▶"));
+  }else{
+    view.append(el("div","noimg",(j.ext||"file").toUpperCase()));
+  }
+  cell.append(view); cell.append(el("div","cap",j.name));
+  return cell;
+}
+function mountGrid(box){
+  const h=box._holder; if(!h||h.dataset.mounted==="1")return;
+  h.style.minHeight=""; h.innerHTML="";
+  for(const ji of box._fidx) h.append(buildCell(ji));
+  h.dataset.mounted="1";
+}
+function unmountGrid(box){
+  const h=box._holder; if(!h||h.dataset.mounted!=="1")return;
+  h.style.minHeight=Math.max(60,h.offsetHeight)+"px";  // giu cho -> khong nhay scroll
+  h.innerHTML=""; h.dataset.mounted="0";
+}
+// Ao hoa: chi tao/giu DOM cho post gan tam nhin; mount som ~1.5 man hinh (gom luon F: prefetch thumbnail).
+function renderPosts(){
+  recomputeVIS();
+  const root=$("#posts"); root.innerHTML="";
+  if(mountObs) mountObs.disconnect();
+  mountObs=new IntersectionObserver(ents=>{
+    for(const e of ents){ if(e.isIntersecting) mountGrid(e.target); else unmountGrid(e.target); }
+  }, {rootMargin:"1400px 0px"});
+  for(const pp of CUR.plan){
+    const vf=pp.fidx.filter(ji=>catMatch(CUR.jobs[ji].ext));
+    if(!vf.length) continue;
     const box=el("div","post");
     const ph=el("div","ph");
-    ph.append(el("h3",null,post.title||"(không tiêu đề)"));
-    ph.append(el("span","tiny mut",post.date||""));
+    ph.append(el("h3",null,pp.title||"(không tiêu đề)"));
+    ph.append(el("span","tiny mut",pp.date||""));
     box.append(ph);
-    const grid=el("div","files");
-    for(const f of post.files){
-      const j = {url:f.url, thumb:f.thumb, name:f.name, ext:f.ext, creator:CUR.name,
-        service:CUR.service, cid:CUR.id, postId:post.id, published:post.date, title:post.title};
-      const ji = CUR.jobs.push(j)-1;
-      const cell=el("div","file");
-      const cb=el("input","pick"); cb.type="checkbox"; cb.dataset.j=ji;
-      cb.checked=true; cell.append(cb);
-      const view=el("div","view"); view.dataset.j=ji; view.title="Xem trước";
-      if(IMG_EXT.has(f.ext) || VID_EXT.has(f.ext)){
-        const im=el("img","thumb"); im.loading="lazy"; im.src=f.thumb;
-        im.onerror=()=>{ im.replaceWith(el("div","noimg",(f.ext||"file").toUpperCase())); };
-        view.append(im);
-        if(VID_EXT.has(f.ext)) view.append(el("div","play","▶"));
-      }else{
-        view.append(el("div","noimg",(f.ext||"file").toUpperCase()));
-      }
-      cell.append(view);
-      cell.append(el("div","cap",f.name));
-      grid.append(cell);
-    }
-    box.append(grid);
-    root.append(box);
+    const holder=el("div","files"); holder.dataset.mounted="0";
+    box._holder=holder; box._fidx=vf;
+    box.append(holder); root.append(box);
+    mountObs.observe(box);
   }
+  // Mount san vai post dau -> trang hien ngay ca khi IntersectionObserver chua kip.
+  [...root.children].slice(0,10).forEach(mountGrid);
   updateSelInfo();
 }
-
-function pickboxes(){ return $$("#posts .pick"); }
+function syncChecks(){ for(const cb of $$("#posts .pick")) cb.checked=!!CUR.jobs[+cb.dataset.j].checked; }
 function updateSelInfo(){
-  const all=pickboxes(); const on=all.filter(c=>c.checked).length;
-  $("#selInfo").textContent = on+"/"+all.length+" file được chọn";
+  const visSel=VIS.reduce((n,ji)=>n+(CUR.jobs[ji].checked?1:0),0);
+  const totSel=CUR.jobs.reduce((n,j)=>n+(j.checked?1:0),0);
+  $("#selInfo").textContent = visSel+"/"+VIS.length+" đang hiển thị được chọn"
+    + (VIS.length<CUR.jobs.length ? "  ·  "+totSel+"/"+CUR.jobs.length+" tổng" : "");
 }
-$("#posts")?.addEventListener("change",e=>{ if(e.target.classList.contains("pick")) updateSelInfo(); });
+$("#posts")?.addEventListener("change",e=>{
+  if(!e.target.classList.contains("pick"))return;
+  setChecked(CUR.jobs[+e.target.dataset.j], e.target.checked); updateSelInfo();
+});
 $("#posts")?.addEventListener("click",e=>{
   const v=e.target.closest(".view"); if(v) openPreview(+v.dataset.j);
 });
 
 // ============================ xem truoc (lightbox) ============================
-let PV=-1;
-function openPreview(ji){ if(!CUR||!CUR.jobs[ji])return; PV=ji; renderLB(); $("#lightbox").classList.remove("hide"); }
+let PV=-1;   // chi so trong VIS (danh sach dang hien thi)
+function curJob(){ return (PV>=0 && VIS[PV]!=null) ? CUR.jobs[VIS[PV]] : null; }
+function openPreview(ji){ if(!CUR)return; const p=VIS.indexOf(ji); if(p<0)return; PV=p; renderLB(); $("#lightbox").classList.remove("hide"); }
 function closePreview(){ $("#lightbox").classList.add("hide"); $("#lbStage").innerHTML=""; PV=-1; }
-function pvStep(d){ if(PV<0||!CUR)return; const n=PV+d; if(n<0||n>=CUR.jobs.length)return; PV=n; renderLB(); }
+function pvStep(d){ if(PV<0)return; const n=PV+d; if(n<0||n>=VIS.length)return; PV=n; renderLB(); }
 function renderLB(){
-  const j=CUR.jobs[PV]; if(!j)return;
+  const j=curJob(); if(!j)return;
   const stage=$("#lbStage"); stage.innerHTML=""; // xoa media cu -> dung phat video
   const ext=j.ext;
   if(IMG_EXT.has(ext)){
@@ -471,7 +541,7 @@ function renderLB(){
     stage.append(im);
     if(j.ext!=="gif" && j.thumb){
       const full=new Image();
-      full.onload=()=>{ if(CUR.jobs[PV]===j) im.src=j.url; };  // van dang xem dung anh do
+      full.onload=()=>{ if(curJob()===j) im.src=j.url; };  // van dang xem dung anh do
       full.src=j.url;
     }
     prefetchNeighbors();
@@ -480,15 +550,16 @@ function renderLB(){
   else if(AUD_EXT.has(ext)){ const a=el("audio"); a.src=j.url; a.controls=a.autoplay=true; stage.append(a); }
   else{ const d=el("div"); d.style.color="#ccc"; d.innerHTML='Không xem trước được <b>'+(ext||"?").toUpperCase()+'</b> — bấm “Tải file này”.'; stage.append(d); }
   $("#lbCap").textContent=(j.title?j.title+" · ":"")+j.name;
-  $("#lbCnt").textContent=(PV+1)+"/"+CUR.jobs.length;
+  $("#lbCnt").textContent=(PV+1)+"/"+VIS.length;
   $("#lbPrev").style.visibility=PV>0?"visible":"hidden";
-  $("#lbNext").style.visibility=PV<CUR.jobs.length-1?"visible":"hidden";
+  $("#lbNext").style.visibility=PV<VIS.length-1?"visible":"hidden";
 }
 // nap truoc anh goc lien ke -> bam trai/phai hien gan nhu tuc thi
 const _prefetched=new Set();
 function prefetchNeighbors(){
   for(const k of [PV+1, PV-1, PV+2]){
-    const j=CUR.jobs[k]; if(!j||!IMG_EXT.has(j.ext)) continue;
+    const ji=VIS[k]; if(ji==null)continue;
+    const j=CUR.jobs[ji]; if(!IMG_EXT.has(j.ext)) continue;
     if(_prefetched.has(j.url)) continue; _prefetched.add(j.url);
     const im=new Image(); im.src=j.url;
   }
@@ -497,7 +568,7 @@ $("#lbClose").onclick=closePreview;
 $("#lbPrev").onclick=()=>pvStep(-1);
 $("#lbNext").onclick=()=>pvStep(1);
 $("#lightbox").addEventListener("click",e=>{ if(e.target.id==="lightbox") closePreview(); });
-$("#lbDl").onclick=()=>{ if(CUR&&CUR.jobs[PV]) saveOne(CUR.jobs[PV]); };
+$("#lbDl").onclick=()=>{ const j=curJob(); if(j) saveOne(j); };
 document.addEventListener("keydown",e=>{
   if($("#lightbox").classList.contains("hide"))return;
   if(e.key==="Escape")closePreview();
@@ -600,17 +671,46 @@ let DL_STOP=false, DIR_HANDLE=null;
 const hasFS = "showDirectoryPicker" in window;
 
 let DL_CONC = LS.get("pc_conc", 6);   // so file tai song song
+function chosenJobs(){ return VIS.map(ji=>CUR.jobs[ji]).filter(j=>j.checked); }  // dang hien thi + duoc chon
+function human(n){ const u=["B","KB","MB","GB","TB"]; let i=0; n=+n||0; while(n>=1024&&i<u.length-1){n/=1024;i++;} return (n<10&&i>0?n.toFixed(1):Math.round(n))+" "+u[i]; }
+
+// C: uoc luong tong dung luong bang HEAD song song (Content-Length doc duoc qua CORS).
+let EST_BUSY=false;
+async function estimateSize(){
+  if(EST_BUSY) return;
+  const jobs=chosenJobs();
+  if(!jobs.length){ log("Chưa chọn file nào (đang hiển thị)."); return; }
+  EST_BUSY=true; $("#estimate").disabled=true;
+  log("Đang ước lượng dung lượng "+jobs.length+" file…");
+  let total=0, known=0, unknown=0, done=0, next=0;
+  const conc=Math.min(8, jobs.length);
+  async function worker(){
+    while(true){ const k=next++; if(k>=jobs.length)return;
+      try{
+        const r=await fetch(jobs[k].url,{method:"HEAD"});
+        const cl=+(r.headers.get("Content-Length")||0);
+        if(cl>0){ total+=cl; known++; } else unknown++;
+      }catch{ unknown++; }
+      $("#progTxt").textContent="ước lượng "+(++done)+"/"+jobs.length;
+    }
+  }
+  await Promise.all(Array.from({length:conc}, worker));
+  $("#progTxt").textContent="";
+  const est = known ? Math.round(total/known*jobs.length) : 0;  // suy ra cho file khong ro
+  log(`Dung lượng ~${human(total)} (${known} file)`
+    + (unknown? `; ${unknown} file không rõ → ước tính tổng ~${human(est)}` : ` — tổng cho ${jobs.length} file.`));
+  EST_BUSY=false; $("#estimate").disabled=false;
+}
 async function download(){
-  const jobs = pickboxes().filter(c=>c.checked).map(c=>CUR.jobs[+c.dataset.j]);
-  if(!jobs.length){ log("Chưa chọn file nào."); return; }
+  const jobs = chosenJobs();
+  if(!jobs.length){ log("Chưa chọn file nào (đang hiển thị)."); return; }
   DL_STOP=false;
   $("#dl").classList.add("hide"); $("#stop").classList.remove("hide");
 
-  let byCreator=null;
+  let outDir=null;
   if(hasFS){
     try{
-      const dir = await window.showDirectoryPicker({mode:"readwrite"});
-      byCreator = await dir.getDirectoryHandle(safe(jobs[0].creator||"pawcrawl"), {create:true});
+      outDir = await window.showDirectoryPicker({mode:"readwrite"}); // ghi thang vao day, khong tao folder con
     }catch(e){ log("Đã huỷ chọn thư mục."); return finish(); }
   }
 
@@ -624,9 +724,9 @@ async function download(){
     const fname = safe((j.published?j.published+"_":"")+j.postId+"_"+j.name);
     try{
       if(hasFS){
-        try{ await byCreator.getFileHandle(fname); skip++; return; }catch{} // da co -> bo qua
+        try{ await outDir.getFileHandle(fname); skip++; return; }catch{} // da co -> bo qua
         const resp = await fetch(j.url); if(!resp.ok) throw new Error("HTTP "+resp.status);
-        const fh = await byCreator.getFileHandle(fname,{create:true});
+        const fh = await outDir.getFileHandle(fname,{create:true});
         const w = await fh.createWritable();
         await resp.body.pipeTo(w);
         ok++;
@@ -754,12 +854,15 @@ $("#conc").addEventListener("change",e=>{
   e.target.value=DL_CONC; LS.set("pc_conc", DL_CONC);
 });
 
-$("#selAll").onclick=()=>{ pickboxes().forEach(c=>c.checked=true); updateSelInfo(); };
-$("#selNone").onclick=()=>{ pickboxes().forEach(c=>c.checked=false); updateSelInfo(); };
-$("#selImg").onclick=()=>{ pickboxes().forEach(c=>c.checked=IMG_EXT.has(CUR.jobs[+c.dataset.j].ext)); updateSelInfo(); };
-$("#selGif").onclick=()=>{ pickboxes().forEach(c=>c.checked=CUR.jobs[+c.dataset.j].ext==="gif"); updateSelInfo(); };
-$("#selVid").onclick=()=>{ pickboxes().forEach(c=>c.checked=VID_EXT.has(CUR.jobs[+c.dataset.j].ext)); updateSelInfo(); };
-$("#maxPosts").addEventListener("change",()=>{ if(CUR) renderPosts(); });
+$$(".fbtn").forEach(b=> b.onclick=()=>{
+  DF=b.dataset.f;
+  $$(".fbtn").forEach(x=>x.classList.toggle("on", x===b));
+  renderPosts();   // doi bo loc -> dung lai danh sach (ao hoa)
+});
+$("#selVisible").onclick=()=>{ for(const ji of VIS) setChecked(CUR.jobs[ji],true); syncChecks(); updateSelInfo(); };
+$("#selNone").onclick=()=>{ for(const j of CUR.jobs) setChecked(j,false); syncChecks(); updateSelInfo(); };
+$("#maxPosts").addEventListener("change",()=>{ if(CUR){ buildJobs(); renderPosts(); } });
+$("#estimate").onclick=estimateSize;
 
 $("#favExport").onclick=()=>{
   const blob=new Blob([JSON.stringify(favs(),null,2)],{type:"application/json"});
