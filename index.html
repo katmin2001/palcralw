@@ -50,10 +50,29 @@
   .files{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
   .file{background:var(--panel2);border:1px solid var(--line);border-radius:10px;
     overflow:hidden;position:relative}
+  .file .view{position:relative;cursor:pointer;display:block}
+  .file .view:hover .thumb,.file .view:hover .noimg{filter:brightness(1.12)}
   .file .thumb{width:100%;height:120px;object-fit:cover;background:#0a0c10;display:block}
   .file .noimg{width:100%;height:120px;display:flex;align-items:center;justify-content:center;
     color:var(--mut);font-size:12px;background:#0a0c10}
+  .file .play{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    font-size:30px;color:#fff;text-shadow:0 2px 8px #000;background:rgba(0,0,0,.18);pointer-events:none}
   .file .cap{padding:7px 8px;font-size:12px;word-break:break-all}
+  /* lightbox */
+  .lb{position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.9);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px}
+  .lb .stage{max-width:94vw;max-height:80vh;display:flex;align-items:center;justify-content:center}
+  .lb img,.lb video{max-width:94vw;max-height:80vh;object-fit:contain;background:#000;border-radius:6px}
+  .lb audio{width:min(560px,90vw)}
+  .lb .cap2{color:#e7ebf2;margin-top:12px;font-size:13.5px;text-align:center;max-width:90vw;word-break:break-all}
+  .lb .x{position:absolute;top:14px;right:18px;font-size:26px;color:#fff;cursor:pointer;
+    background:none;border:none;line-height:1}
+  .lb .nav{position:absolute;top:50%;transform:translateY(-50%);font-size:34px;color:#fff;
+    cursor:pointer;background:rgba(0,0,0,.35);border:1px solid #444;border-radius:10px;
+    padding:6px 14px;user-select:none}
+  .lb .prev{left:16px} .lb .next{right:16px}
+  .lb .dlbtn{margin-top:10px}
+  .lb .cnt{position:absolute;top:16px;left:18px;color:#9aa4b2;font-size:12.5px}
   .file .pick{position:absolute;top:7px;left:7px;width:20px;height:20px;accent-color:var(--accent)}
   .file .have{position:absolute;top:6px;right:7px;background:var(--ok);color:#04150b;
     font-size:10.5px;padding:1px 6px;border-radius:999px}
@@ -201,6 +220,17 @@
 
 </div>
 
+<!-- ------- lightbox xem truoc ------- -->
+<div class="lb hide" id="lightbox">
+  <div class="cnt" id="lbCnt"></div>
+  <button class="x" id="lbClose" title="Đóng (Esc)">✕</button>
+  <div class="nav prev" id="lbPrev" title="Trước (←)">‹</div>
+  <div class="nav next" id="lbNext" title="Sau (→)">›</div>
+  <div class="stage" id="lbStage"></div>
+  <div class="cap2" id="lbCap"></div>
+  <button class="primary dlbtn" id="lbDl">⬇ Tải file này</button>
+</div>
+
 <script>
 "use strict";
 // ============================ cau hinh & tien ich ============================
@@ -220,6 +250,7 @@ const el = (t, c, txt) => { const e=document.createElement(t); if(c)e.className=
 const enc = encodeURIComponent;
 const IMG_EXT = new Set(["jpg","jpeg","png","gif","webp","bmp","avif","jfif"]);
 const VID_EXT = new Set(["mp4","webm","mov","m4v","mkv","avi","wmv","flv"]);
+const AUD_EXT = new Set(["mp3","m4a","wav","ogg","oga","flac","aac","opus","weba"]);
 
 function extOf(name){ const m=/\.([a-z0-9]+)(?:\?|$)/i.exec(name||""); return m?m[1].toLowerCase():""; }
 function fold(s){ return (s||"").normalize("NFKD").replace(/[̀-ͯ]/g,"").toLowerCase().trim(); }
@@ -384,19 +415,22 @@ function renderPosts(){
     box.append(ph);
     const grid=el("div","files");
     for(const f of post.files){
-      const j = {url:f.url, name:f.name, ext:f.ext, creator:CUR.name,
-        service:CUR.service, cid:CUR.id, postId:post.id, published:post.date};
+      const j = {url:f.url, thumb:f.thumb, name:f.name, ext:f.ext, creator:CUR.name,
+        service:CUR.service, cid:CUR.id, postId:post.id, published:post.date, title:post.title};
       const ji = CUR.jobs.push(j)-1;
       const cell=el("div","file");
       const cb=el("input","pick"); cb.type="checkbox"; cb.dataset.j=ji;
       cb.checked=true; cell.append(cb);
+      const view=el("div","view"); view.dataset.j=ji; view.title="Xem trước";
       if(IMG_EXT.has(f.ext) || VID_EXT.has(f.ext)){
         const im=el("img","thumb"); im.loading="lazy"; im.src=f.thumb;
-        im.onerror=()=>{ im.replaceWith(Object.assign(el("div","noimg",f.ext.toUpperCase()||"FILE")));};
-        cell.append(im);
+        im.onerror=()=>{ im.replaceWith(el("div","noimg",(f.ext||"file").toUpperCase())); };
+        view.append(im);
+        if(VID_EXT.has(f.ext)) view.append(el("div","play","▶"));
       }else{
-        cell.append(el("div","noimg",(f.ext||"file").toUpperCase()));
+        view.append(el("div","noimg",(f.ext||"file").toUpperCase()));
       }
+      cell.append(view);
       cell.append(el("div","cap",f.name));
       grid.append(cell);
     }
@@ -412,6 +446,49 @@ function updateSelInfo(){
   $("#selInfo").textContent = on+"/"+all.length+" file được chọn";
 }
 $("#posts")?.addEventListener("change",e=>{ if(e.target.classList.contains("pick")) updateSelInfo(); });
+$("#posts")?.addEventListener("click",e=>{
+  const v=e.target.closest(".view"); if(v) openPreview(+v.dataset.j);
+});
+
+// ============================ xem truoc (lightbox) ============================
+let PV=-1;
+function openPreview(ji){ if(!CUR||!CUR.jobs[ji])return; PV=ji; renderLB(); $("#lightbox").classList.remove("hide"); }
+function closePreview(){ $("#lightbox").classList.add("hide"); $("#lbStage").innerHTML=""; PV=-1; }
+function pvStep(d){ if(PV<0||!CUR)return; const n=PV+d; if(n<0||n>=CUR.jobs.length)return; PV=n; renderLB(); }
+function renderLB(){
+  const j=CUR.jobs[PV]; if(!j)return;
+  const stage=$("#lbStage"); stage.innerHTML=""; // xoa media cu -> dung phat video
+  const ext=j.ext;
+  if(IMG_EXT.has(ext)){ const im=el("img"); im.src=j.url; im.alt=j.name; stage.append(im); }
+  else if(VID_EXT.has(ext)){ const v=el("video"); v.src=j.url; v.controls=v.autoplay=v.playsInline=true; stage.append(v); }
+  else if(AUD_EXT.has(ext)){ const a=el("audio"); a.src=j.url; a.controls=a.autoplay=true; stage.append(a); }
+  else{ const d=el("div"); d.style.color="#ccc"; d.innerHTML='Không xem trước được <b>'+(ext||"?").toUpperCase()+'</b> — bấm “Tải file này”.'; stage.append(d); }
+  $("#lbCap").textContent=(j.title?j.title+" · ":"")+j.name;
+  $("#lbCnt").textContent=(PV+1)+"/"+CUR.jobs.length;
+  $("#lbPrev").style.visibility=PV>0?"visible":"hidden";
+  $("#lbNext").style.visibility=PV<CUR.jobs.length-1?"visible":"hidden";
+}
+$("#lbClose").onclick=closePreview;
+$("#lbPrev").onclick=()=>pvStep(-1);
+$("#lbNext").onclick=()=>pvStep(1);
+$("#lightbox").addEventListener("click",e=>{ if(e.target.id==="lightbox") closePreview(); });
+$("#lbDl").onclick=()=>{ if(CUR&&CUR.jobs[PV]) saveOne(CUR.jobs[PV]); };
+document.addEventListener("keydown",e=>{
+  if($("#lightbox").classList.contains("hide"))return;
+  if(e.key==="Escape")closePreview();
+  else if(e.key==="ArrowLeft")pvStep(-1);
+  else if(e.key==="ArrowRight")pvStep(1);
+});
+async function saveOne(j){
+  try{
+    const r=await fetch(j.url); if(!r.ok) throw new Error("HTTP "+r.status);
+    const blob=await r.blob();
+    const fname=safe((j.published?j.published+"_":"")+j.postId+"_"+j.name);
+    const a=el("a"); a.href=URL.createObjectURL(blob); a.download=fname;
+    document.body.append(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),4000);
+    log("⬇ đã tải: "+fname);
+  }catch(e){ log("✗ tải lỗi: "+e.message); }
+}
 
 // ============================ tim kiem ============================
 let CREATOR_INDEX=null; // giu trong bo nho (12MB - khong cho vao localStorage)
