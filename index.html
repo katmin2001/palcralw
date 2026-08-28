@@ -73,7 +73,8 @@
   .lb .prev{left:16px} .lb .next{right:16px}
   .lb .dlbtn{margin-top:10px}
   .lb .cnt{position:absolute;top:16px;left:18px;color:#9aa4b2;font-size:12.5px}
-  .file .pick{position:absolute;top:7px;left:7px;width:20px;height:20px;accent-color:var(--accent)}
+  .file .pick{position:absolute;top:7px;left:7px;width:20px;height:20px;accent-color:var(--accent);
+    z-index:3;cursor:pointer;box-shadow:0 0 0 2px rgba(0,0,0,.55);border-radius:4px;background:#0a0c10}
   .file .have{position:absolute;top:6px;right:7px;background:var(--ok);color:#04150b;
     font-size:10.5px;padding:1px 6px;border-radius:999px}
   .post{border-top:1px solid var(--line);padding:12px 0}
@@ -186,6 +187,7 @@
         <button class="ghost" id="selAll">Chọn tất cả</button>
         <button class="ghost" id="selNone">Bỏ chọn</button>
         <button class="ghost" id="selImg">Chỉ ảnh</button>
+        <button class="ghost" id="selGif">Chỉ GIF</button>
         <button class="ghost" id="selVid">Chỉ video</button>
         <span class="mut" id="selInfo"></span>
       </div>
@@ -194,6 +196,9 @@
       <div class="bar">
         <button class="primary" id="dl">⬇ Tải các mục đã chọn</button>
         <button id="stop" class="hide">■ Dừng</button>
+        <label class="tiny mut" title="Số file tải cùng lúc">luồng
+          <input id="conc" type="number" min="1" max="16" value="6" style="width:56px">
+        </label>
         <div class="prog"><i id="progBar"></i></div>
         <span class="tiny mut" id="progTxt"></span>
       </div>
@@ -459,14 +464,34 @@ function renderLB(){
   const j=CUR.jobs[PV]; if(!j)return;
   const stage=$("#lbStage"); stage.innerHTML=""; // xoa media cu -> dung phat video
   const ext=j.ext;
-  if(IMG_EXT.has(ext)){ const im=el("img"); im.src=j.url; im.alt=j.name; stage.append(im); }
-  else if(VID_EXT.has(ext)){ const v=el("video"); v.src=j.url; v.controls=v.autoplay=v.playsInline=true; stage.append(v); }
+  if(IMG_EXT.has(ext)){
+    // hien thumbnail ngay (nhe, thuong da cache) roi nang cap len anh goc phia sau
+    const im=el("img"); im.alt=j.name; im.decoding="async";
+    im.src = j.ext==="gif" ? j.url : (j.thumb || j.url);  // gif: xem thang ban dong
+    stage.append(im);
+    if(j.ext!=="gif" && j.thumb){
+      const full=new Image();
+      full.onload=()=>{ if(CUR.jobs[PV]===j) im.src=j.url; };  // van dang xem dung anh do
+      full.src=j.url;
+    }
+    prefetchNeighbors();
+  }
+  else if(VID_EXT.has(ext)){ const v=el("video"); v.src=j.url; v.controls=v.autoplay=v.playsInline=true; v.preload="auto"; stage.append(v); }
   else if(AUD_EXT.has(ext)){ const a=el("audio"); a.src=j.url; a.controls=a.autoplay=true; stage.append(a); }
   else{ const d=el("div"); d.style.color="#ccc"; d.innerHTML='Không xem trước được <b>'+(ext||"?").toUpperCase()+'</b> — bấm “Tải file này”.'; stage.append(d); }
   $("#lbCap").textContent=(j.title?j.title+" · ":"")+j.name;
   $("#lbCnt").textContent=(PV+1)+"/"+CUR.jobs.length;
   $("#lbPrev").style.visibility=PV>0?"visible":"hidden";
   $("#lbNext").style.visibility=PV<CUR.jobs.length-1?"visible":"hidden";
+}
+// nap truoc anh goc lien ke -> bam trai/phai hien gan nhu tuc thi
+const _prefetched=new Set();
+function prefetchNeighbors(){
+  for(const k of [PV+1, PV-1, PV+2]){
+    const j=CUR.jobs[k]; if(!j||!IMG_EXT.has(j.ext)) continue;
+    if(_prefetched.has(j.url)) continue; _prefetched.add(j.url);
+    const im=new Image(); im.src=j.url;
+  }
 }
 $("#lbClose").onclick=closePreview;
 $("#lbPrev").onclick=()=>pvStep(-1);
@@ -574,53 +599,58 @@ function renderPostHits(hits){
 let DL_STOP=false, DIR_HANDLE=null;
 const hasFS = "showDirectoryPicker" in window;
 
+let DL_CONC = LS.get("pc_conc", 6);   // so file tai song song
 async function download(){
   const jobs = pickboxes().filter(c=>c.checked).map(c=>CUR.jobs[+c.dataset.j]);
   if(!jobs.length){ log("Chưa chọn file nào."); return; }
   DL_STOP=false;
   $("#dl").classList.add("hide"); $("#stop").classList.remove("hide");
 
-  let dir=null, byCreator=null;
+  let byCreator=null;
   if(hasFS){
     try{
-      dir = await window.showDirectoryPicker({mode:"readwrite"});
-    }catch(e){ log("Đã huỷ chọn thư mục."); reset(); return; }
-    // gom theo creator: tao thu muc con
-    byCreator = await dir.getDirectoryHandle(safe(jobs[0].creator||"pawcrawl"), {create:true});
+      const dir = await window.showDirectoryPicker({mode:"readwrite"});
+      byCreator = await dir.getDirectoryHandle(safe(jobs[0].creator||"pawcrawl"), {create:true});
+    }catch(e){ log("Đã huỷ chọn thư mục."); return finish(); }
   }
 
-  let ok=0, err=0, skip=0; const total=jobs.length;
-  for(let i=0;i<jobs.length;i++){
-    if(DL_STOP){ log("⏹ Đã dừng."); break; }
-    const j=jobs[i];
+  const total=jobs.length;
+  let ok=0, err=0, skip=0, done=0, next=0;
+  const conc = Math.max(1, Math.min(hasFS?DL_CONC:4, total));
+  setProg(0,total,"bắt đầu…");
+  const t0=performance.now();
+
+  async function one(j){
     const fname = safe((j.published?j.published+"_":"")+j.postId+"_"+j.name);
-    setProg(i,total, fname);
     try{
       if(hasFS){
-        // bo qua neu da co
-        try{ await byCreator.getFileHandle(fname); skip++; log("• bỏ qua (đã có): "+fname); continue; }catch{}
-        const resp = await fetch(j.url);
-        if(!resp.ok) throw new Error("HTTP "+resp.status);
-        const fh = await byCreator.getFileHandle(fname, {create:true});
+        try{ await byCreator.getFileHandle(fname); skip++; return; }catch{} // da co -> bo qua
+        const resp = await fetch(j.url); if(!resp.ok) throw new Error("HTTP "+resp.status);
+        const fh = await byCreator.getFileHandle(fname,{create:true});
         const w = await fh.createWritable();
         await resp.body.pipeTo(w);
         ok++;
       }else{
-        const resp = await fetch(j.url);
-        if(!resp.ok) throw new Error("HTTP "+resp.status);
+        const resp = await fetch(j.url); if(!resp.ok) throw new Error("HTTP "+resp.status);
         const blob = await resp.blob();
         const a=el("a"); a.href=URL.createObjectURL(blob); a.download=fname;
-        document.body.append(a); a.click(); a.remove();
-        setTimeout(()=>URL.revokeObjectURL(a.href), 4000);
+        document.body.append(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),4000);
         ok++;
       }
     }catch(e){ err++; log("✗ "+fname+" — "+e.message); }
+    finally{ done++; setProg(done,total,fname); }
   }
-  setProg(total,total,"");
-  log(`Xong: ${ok} tải, ${skip} bỏ qua, ${err} lỗi.`);
-  reset();
+  async function worker(){
+    while(!DL_STOP){ const i=next++; if(i>=jobs.length) return; await one(jobs[i]); }
+  }
+  await Promise.all(Array.from({length:conc}, worker));
 
-  function reset(){ $("#dl").classList.remove("hide"); $("#stop").classList.add("hide"); }
+  setProg(total,total,"");
+  const secs=((performance.now()-t0)/1000).toFixed(1);
+  log(`Xong: ${ok} tải, ${skip} bỏ qua, ${err} lỗi — ${secs}s${DL_STOP?" (đã dừng)":""}.`);
+  finish();
+
+  function finish(){ $("#dl").classList.remove("hide"); $("#stop").classList.add("hide"); }
 }
 function setProg(i,total,txt){
   $("#progBar").style.width = total?Math.round(i/total*100)+"%":"0%";
@@ -718,10 +748,16 @@ $("#loadMore").onclick=()=>loadMore(false);
 $("#favAdd").onclick=()=>{ if(CUR) addFav({service:CUR.service,id:CUR.id,name:CUR.name}); };
 $("#dl").onclick=download;
 $("#stop").onclick=()=>{ DL_STOP=true; };
+$("#conc").value=DL_CONC;
+$("#conc").addEventListener("change",e=>{
+  DL_CONC=Math.max(1,Math.min(16, parseInt(e.target.value||"6",10)||6));
+  e.target.value=DL_CONC; LS.set("pc_conc", DL_CONC);
+});
 
 $("#selAll").onclick=()=>{ pickboxes().forEach(c=>c.checked=true); updateSelInfo(); };
 $("#selNone").onclick=()=>{ pickboxes().forEach(c=>c.checked=false); updateSelInfo(); };
 $("#selImg").onclick=()=>{ pickboxes().forEach(c=>c.checked=IMG_EXT.has(CUR.jobs[+c.dataset.j].ext)); updateSelInfo(); };
+$("#selGif").onclick=()=>{ pickboxes().forEach(c=>c.checked=CUR.jobs[+c.dataset.j].ext==="gif"); updateSelInfo(); };
 $("#selVid").onclick=()=>{ pickboxes().forEach(c=>c.checked=VID_EXT.has(CUR.jobs[+c.dataset.j].ext)); updateSelInfo(); };
 $("#maxPosts").addEventListener("change",()=>{ if(CUR) renderPosts(); });
 
