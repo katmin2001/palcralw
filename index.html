@@ -93,6 +93,29 @@
     border-radius:10px;padding:10px 12px;font-size:13px;margin-bottom:14px}
   .fav-b{color:var(--warn)}
   kbd{background:var(--panel2);border:1px solid var(--line);border-radius:5px;padding:1px 6px;font-size:12px}
+  html,body{overflow-x:hidden}
+  input,select{max-width:100%}
+  /* ------- mobile ------- */
+  @media (max-width:600px){
+    header{padding:10px 12px}
+    header h1{font-size:15px}
+    .wrap{padding:12px 10px 80px}
+    .panel{padding:11px}
+    button{padding:9px 13px}                 /* vung cham to hon */
+    .tabs button{padding:9px 16px}
+    #q{flex:1 1 100%}                          /* o tim chiem tron 1 dong */
+    .files{grid-template-columns:repeat(2,1fr)}
+    .file .thumb,.file .noimg{height:132px}
+    .file .pick{width:26px;height:26px;top:8px;left:8px}
+    .file .cap{font-size:12.5px}
+    .lb{padding:8px}
+    .lb img,.lb video{max-width:98vw;max-height:74vh}
+    .lb .nav{font-size:40px;padding:12px 16px;background:rgba(0,0,0,.5)}
+    .lb .x{font-size:32px;top:10px;right:14px}
+    .lb .cnt{top:12px;left:12px}
+    .lb .cap2{font-size:13px}
+  }
+  @media (hover:none){ .file .view:hover .thumb,.file .view:hover .noimg{filter:none} }
 </style>
 </head>
 <body>
@@ -575,6 +598,17 @@ document.addEventListener("keydown",e=>{
   else if(e.key==="ArrowLeft")pvStep(-1);
   else if(e.key==="ArrowRight")pvStep(1);
 });
+// vuot trai/phai tren dien thoai de chuyen anh
+(function(){
+  let x0=null,y0=null;
+  const lb=$("#lightbox");
+  lb.addEventListener("touchstart",e=>{ if(e.touches.length!==1){x0=null;return;} x0=e.touches[0].clientX; y0=e.touches[0].clientY; },{passive:true});
+  lb.addEventListener("touchend",e=>{
+    if(x0==null)return; const t=e.changedTouches[0];
+    const dx=t.clientX-x0, dy=t.clientY-y0; x0=null;
+    if(Math.abs(dx)>48 && Math.abs(dx)>Math.abs(dy)*1.4) pvStep(dx<0?1:-1);
+  },{passive:true});
+})();
 async function saveOne(j){
   try{
     const r=await fetch(j.url); if(!r.ok) throw new Error("HTTP "+r.status);

@@ -69,15 +69,42 @@ GitHub → **Settings → Pages** → Source **Deploy from a branch** → Branch
    - **Dán link creator/post** — vd `pawchive.pw/patreon/user/66371728` *(ổn định nhất)*
    - **Tìm creator theo tên**
    - **Tìm post (toàn site)** theo từ khoá
-3. Trong trang creator: tick chọn file (*Chọn tất cả / Chỉ ảnh / Chỉ video*), chỉnh
-   **Số post nạp**, rồi **⬇ Tải các mục đã chọn**.
-4. **Chọn nơi lưu**: trên **Chrome/Edge** trang hỏi thư mục rồi ghi thẳng vào đó, tự
-   tạo thư mục con theo tên creator, tự **bỏ qua file đã có**. Trình duyệt khác thì
-   file về thư mục **Downloads** mặc định.
+3. Trong trang creator: dùng **Hiển thị** (Tất cả/Ảnh/GIF/Video/Audio) để lọc lưới,
+   **Chọn hiển thị / Bỏ chọn**, chỉnh **Số post nạp** và **số luồng** tải. Bấm **≈ Dung
+   lượng** để ước lượng tổng trước khi tải. Click ảnh/video để **xem trước**.
+4. **⬇ Tải các mục đã chọn**: trên **Chrome/Edge (desktop)** trang hỏi thư mục rồi ghi
+   thẳng vào đúng thư mục đó, tự **bỏ qua file đã có**. Trình duyệt/thiết bị không hỗ trợ
+   (mobile, Firefox, Safari) thì file về thư mục **Downloads** mặc định.
 
 ### Yêu thích
 Vào creator → **★ Lưu yêu thích**. Danh sách ở tab **★ Yêu thích** (lưu trong trình
 duyệt này). Có **Xuất/Nhập JSON** để sao lưu / chuyển máy.
+
+---
+
+## Dùng trên điện thoại (Android / iOS)
+
+Trang web responsive: lưới 2 cột, ô chạm to, **vuốt trái/phải** để chuyển ảnh, chạm nền
+để đóng xem trước. Vẫn cần userscript để gọi API — chọn trình duyệt hỗ trợ tiện ích:
+
+**Android** (chạy tốt)
+1. Cài **Firefox cho Android** *(khuyến nghị)* → vào addons.mozilla.org cài **Tampermonkey**.
+   *(Hoặc **Kiwi Browser** rồi cài Tampermonkey từ Chrome Web Store.)*
+2. Thêm `pawcrawl-bridge.user.js` vào Tampermonkey (mở link `.../pawcrawl-bridge.user.js`).
+3. Vào thẳng `https://pawchive.pw` một lần (lấy cookie qua trang chặn bot).
+4. Mở trang Pages của bạn → thấy chip xanh → dùng như trên máy tính.
+
+**iOS** (được, nhưng vướng hơn)
+- **Safari** + app **Userscripts** (App Store): bật extension trong Cài đặt → Safari →
+  Tiện ích, thêm file `.user.js`. Hỗ trợ `GM_xmlhttpRequest` đôi khi thất thường.
+- Hoặc **Orion browser** (App Store) — cài được tiện ích Firefox/Chrome như **Tampermonkey**,
+  mượt hơn.
+
+**Lưu ý tải trên điện thoại**
+- **Không chọn được thư mục** (mobile không có File System Access API) → file về **Downloads
+  / Files** mặc định.
+- Nên để **số luồng thấp (2–3)**. iOS tải nhiều file rời rạc rất kém — tải **từng ít một**,
+  hoặc dùng nút **⬇ Tải file này** trong khung xem trước cho từng file.
 
 ---
 
