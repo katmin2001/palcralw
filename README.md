@@ -1,99 +1,100 @@
 # pawcrawl — bản web tĩnh
 
-Bản chạy **hoàn toàn trong trình duyệt** của pawcrawl: dán link creator → xem
-danh sách file → chọn → **tải về thư mục bạn tự chọn**. Có lưu **creator yêu
-thích** ngay trong trình duyệt (localStorage).
+Bản chạy **trong trình duyệt** của pawcrawl: dán link creator → xem danh sách file
+→ chọn → **tải về thư mục bạn tự chọn**. Có lưu **creator yêu thích** ngay trong
+trình duyệt (localStorage).
 
-Gồm 2 file cần đưa lên GitHub Pages:
-
-- `index.html` — toàn bộ giao diện + logic (không cần build).
-- `worker.js` — Cloudflare Worker làm **proxy CORS** cho phần API (deploy riêng, miễn phí).
-
-> `README.md` này chỉ để đọc — không cần đưa lên Pages.
+Đưa lên GitHub Pages chỉ cần **`index.html`**. Để phần liệt kê/tìm chạy được, cài
+thêm **userscript** `pawcrawl-bridge.user.js` (một lần).
 
 ---
 
-## Vì sao cần Worker? (quan trọng)
+## Vì sao cần userscript?
 
-| Thành phần | Từ web tĩnh gọi thẳng được không? |
+| Thành phần | Web tĩnh gọi thẳng được không? |
 |---|---|
-| **File thật** `file.pawchive.pw` | ✅ Có (CDN đã mở `Access-Control-Allow-Origin: *`) → tải trực tiếp |
-| **API** `pawchive.pw/api/...` (danh sách post, hồ sơ, tìm kiếm) | ❌ Không — API **không gửi header CORS**, trình duyệt chặn |
+| **File thật** `file.pawchive.pw` | ✅ Có (CDN mở CORS) → tải trực tiếp |
+| **API** `pawchive.pw/api/...` (danh sách, hồ sơ, tìm) | ❌ Không: chặn CORS **và** chặn IP máy chủ (challenge DDoS-Guard) |
 
-Bản Python (`pawcrawl_ui.py`) né được vì nó chạy **server proxy cục bộ**. Web
-tĩnh trên GitHub Pages không có server đó, nên phần API phải đi qua một proxy
-nhỏ của bạn. **File tải vẫn đi thẳng CDN**, không qua proxy — nên proxy rất nhẹ.
+Vì pawchive chặn cả CORS lẫn IP của proxy đám mây (Cloudflare Worker bị trả 404 +
+trang challenge), cách chạy được và ổn định nhất là gọi API **bằng chính trình
+duyệt bạn** qua một userscript: nó dùng IP + cookie thật của bạn nên pawchive
+không challenge. File vẫn tải thẳng CDN, không qua đâu cả.
+
+> Bản Python (`pawcrawl_ui.py` / `.exe`) chạy được vì cũng dùng IP máy bạn.
 
 ---
 
-## Bước 1 — Deploy Cloudflare Worker (proxy API)
+## Bước 1 — Cài userscript (một lần)
 
-Cách nhanh (không cần cài gì):
+1. Cài tiện ích **Tampermonkey** (Chrome/Edge/Firefox — từ cửa hàng tiện ích).
+2. Mở Tampermonkey → **Create a new script…** → xoá hết → **dán toàn bộ**
+   `pawcrawl-bridge.user.js` → **Ctrl+S** để lưu.
+   *(Hoặc kéo-thả file `.user.js` vào trình duyệt, Tampermonkey sẽ hỏi cài.)*
+3. Script chỉ chạy trên trang GitHub Pages của bạn (`*.github.io`) và localhost, và
+   chỉ được phép gọi `pawchive.pw` / `pawchive.st`.
 
-1. Vào <https://dash.cloudflare.com> → **Workers & Pages** → **Create** → **Create Worker**.
-2. Đặt tên (vd `pawcrawl-proxy`) → **Deploy** → **Edit code**.
-3. Xoá code mẫu, **dán toàn bộ `worker.js`** vào → **Deploy**.
-4. Copy URL Worker, dạng: `https://pawcrawl-proxy.<tài-khoản>.workers.dev`
-
-Hoặc bằng Wrangler (CLI):
-```bash
-npx wrangler deploy web/worker.js --name pawcrawl-proxy
-```
-
-Worker chỉ cho proxy tới `pawchive.pw` / `pawchive.st`, không phải open proxy.
+> **Mẹo:** vào `https://pawchive.pw` một lần bằng trình duyệt (để qua trang chặn
+> bot, lấy cookie). Sau đó userscript gọi API sẽ trơn tru.
 
 ---
 
 ## Bước 2 — Đưa web lên GitHub Pages
 
-Đưa `index.html` (và `worker.js` để tham khảo) vào **thư mục gốc** của một repo:
+Đưa `index.html` vào **thư mục gốc** của repo (kèm 2 file kia để tải/tham khảo):
 
 ```bash
 git init
-git add index.html worker.js README.md
+git add index.html pawcrawl-bridge.user.js worker.js README.md
 git commit -m "pawcrawl web (static)"
 git branch -M main
 git remote add origin https://github.com/<user>/<repo>.git
 git push -u origin main
 ```
 
-Trên GitHub: **Settings → Pages → Build and deployment**
-- Source: **Deploy from a branch**
-- Branch: **main** / **/ (root)** → **Save**
+GitHub → **Settings → Pages** → Source **Deploy from a branch** → Branch **main /
+(root)** → **Save**. Sau ~1 phút: `https://<user>.github.io/<repo>/`
 
-Sau ~1 phút, trang ở: `https://<user>.github.io/<repo>/`
+Để người khác cài userscript dễ, có thể trỏ họ tới link raw của file, ví dụ:
+`https://<user>.github.io/<repo>/pawcrawl-bridge.user.js` (Tampermonkey nhận link
+`.user.js` là mở hộp thoại cài).
 
 ---
 
 ## Bước 3 — Dùng
 
-1. Mở trang → bấm **⚙ Cấu hình** → dán **Proxy URL** (URL Worker ở Bước 1) → **Lưu**.
-2. Ba chế độ tìm:
-   - **Dán link creator/post** — vd `pawchive.pw/patreon/user/66371728`
+1. Mở trang. Nếu userscript đã cài, sẽ thấy chip xanh **“● userscript đã kết nối”**.
+   *(Vừa cài xong thì tải lại trang.)*
+2. Ba chế độ (ô chọn bên trái):
+   - **Dán link creator/post** — vd `pawchive.pw/patreon/user/66371728` *(ổn định nhất)*
    - **Tìm creator theo tên**
    - **Tìm post (toàn site)** theo từ khoá
-3. Trong trang creator: tick chọn file (có nút *Chọn tất cả / Chỉ ảnh / Chỉ video*),
-   chỉnh **Số post nạp**, rồi **⬇ Tải các mục đã chọn**.
-4. **Chọn nơi lưu**: trên **Chrome/Edge** trang sẽ hỏi thư mục (File System Access
-   API) rồi ghi thẳng vào đó, tự tạo thư mục con theo tên creator, tự **bỏ qua file
-   đã có**. Trên trình duyệt không hỗ trợ (Firefox/Safari) file rơi vào thư mục
-   **Downloads** mặc định.
+3. Trong trang creator: tick chọn file (*Chọn tất cả / Chỉ ảnh / Chỉ video*), chỉnh
+   **Số post nạp**, rồi **⬇ Tải các mục đã chọn**.
+4. **Chọn nơi lưu**: trên **Chrome/Edge** trang hỏi thư mục rồi ghi thẳng vào đó, tự
+   tạo thư mục con theo tên creator, tự **bỏ qua file đã có**. Trình duyệt khác thì
+   file về thư mục **Downloads** mặc định.
 
 ### Yêu thích
-Vào một creator → **★ Lưu yêu thích**. Danh sách nằm ở tab **★ Yêu thích**, lưu
-trong trình duyệt này (localStorage). Có **Xuất/Nhập JSON** để chuyển máy/sao lưu.
+Vào creator → **★ Lưu yêu thích**. Danh sách ở tab **★ Yêu thích** (lưu trong trình
+duyệt này). Có **Xuất/Nhập JSON** để sao lưu / chuyển máy.
+
+---
+
+## Cách khác (không khuyến nghị): Cloudflare Worker
+
+Nếu không muốn cài userscript, có thể deploy `worker.js` làm proxy rồi dán URL vào
+**⚙ Cấu hình → Proxy URL**. **Lưu ý:** pawchive thường chặn IP Cloudflare Worker
+(trả 404 + trang challenge), nên cách này hay lỗi. Userscript đáng tin hơn nhiều.
 
 ---
 
 ## Hạn chế đã biết
 
-- **Chọn thư mục lưu** cần Chrome/Edge (File System Access API). Trình duyệt khác
-  vẫn tải được nhưng về thẳng Downloads.
-- **Tìm creator theo tên** tải cả chỉ mục (`/api/v1/creators`, ~12MB). Endpoint
-  này nặng và đôi khi bị pawchive giới hạn — nếu lỗi, dùng **dán link** hoặc **tìm
-  post** thay thế.
-- pawchive có **chống spam**: quét/tải quá nhanh & nhiều có thể bị chặn tạm thời
-  (site trả lỗi kết nối). Đợi một lúc rồi thử lại.
-- Chỉ tải được **nội dung công khai** trên pawchive (không đăng nhập tài khoản trả phí).
-- Favorites theo **từng trình duyệt/máy** (localStorage) — không đồng bộ tự động;
-  dùng Xuất/Nhập JSON để mang đi.
+- **Chọn thư mục lưu** cần Chrome/Edge (File System Access API). Trình duyệt khác vẫn
+  tải được nhưng về Downloads.
+- **Tìm creator theo tên** tải cả chỉ mục (`/api/v1/creators`, ~12MB) — hơi nặng.
+- pawchive có **chống spam / rate-limit**: quét/tải quá nhanh có thể bị chặn tạm; đợi
+  một lúc rồi thử lại. Vào thẳng `pawchive.pw` một lần để lấy cookie giúp đỡ bị chặn.
+- Chỉ tải được **nội dung công khai**.
+- Favorites theo **từng trình duyệt/máy**; dùng Xuất/Nhập JSON để mang đi.

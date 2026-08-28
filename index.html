@@ -85,9 +85,19 @@
 
   <!-- ------- cau hinh ------- -->
   <div class="panel hide" id="cfg">
+    <div style="margin-bottom:10px">
+      <b>Cách kết nối API</b> <span class="mut tiny">(để liệt kê/tìm — file luôn tải thẳng CDN)</span>
+      <div class="tiny mut" style="margin-top:6px;line-height:1.7">
+        <b class="fav-b">① Userscript (khuyến nghị)</b> — cài tiện ích <b>Tampermonkey</b>,
+        rồi thêm file <code>pawcrawl-bridge.user.js</code>. Nó gọi API bằng chính trình duyệt
+        bạn nên <b>không dính challenge</b>. Xong sẽ hiện “userscript đã kết nối”.<br>
+        <b>② Proxy URL</b> (dự phòng) — dán URL Cloudflare Worker. Lưu ý pawchive thường
+        chặn IP Worker (challenge DDoS-Guard) nên cách này hay lỗi 404.
+      </div>
+    </div>
     <div class="row">
       <div class="grow">
-        <label class="tiny mut">Proxy URL (Cloudflare Worker) — bắt buộc để quét/tìm</label>
+        <label class="tiny mut">Proxy URL (tùy chọn — chỉ dùng khi không cài userscript)</label>
         <input id="proxy" class="grow" style="width:100%" placeholder="https://pawcrawl-proxy.xxx.workers.dev">
       </div>
       <div>
@@ -101,15 +111,15 @@
         <button class="primary" id="saveCfg">Lưu</button>
       </div>
     </div>
-    <div class="tiny mut" style="margin-top:8px">
-      File tải thẳng từ CDN (đã mở CORS). Chỉ phần API (danh sách/tìm kiếm) cần proxy —
-      xem <code>worker.js</code> + README để deploy Worker miễn phí.
-    </div>
   </div>
 
   <div class="warnbox hide" id="needProxy">
-    Chưa đặt <b>Proxy URL</b>. Phần tìm/quét cần proxy (API pawchive chặn CORS).
-    Bấm <b>⚙ Cấu hình</b> để dán URL Worker. Xem <code>worker.js</code>.
+    Chưa kết nối được API. Cài <b>userscript pawcrawl-bridge</b> (khuyến nghị) hoặc đặt
+    <b>Proxy URL</b> — bấm <b>⚙ Cấu hình</b>. Nếu vừa cài userscript, hãy <b>tải lại trang</b>.
+  </div>
+
+  <div class="chip hide" id="bridgeOk" style="border-color:var(--ok);color:var(--ok);margin-bottom:14px">
+    ● userscript đã kết nối — sẵn sàng
   </div>
 
   <div class="tabs">
@@ -216,30 +226,61 @@ function fold(s){ return (s||"").normalize("NFKD").replace(/[̀-ͯ]/g,"").toLowe
 function safe(s){ return (s||"").replace(/[<>:"/\|?*]/g,"_").replace(/[\u0000-\u001f]/g,"").replace(/\s+/g," ").trim().slice(0,120) || "_"; }
 function host(){ return CFG.host; }
 
-// bao API qua proxy; file/anh thi khong can (CDN da mo CORS)
+const sleep = ms => new Promise(r=>setTimeout(r,ms));
+
+// -------- cau noi userscript (Tampermonkey) --------
+// Uu tien: goi API qua userscript pawcrawl-bridge (chay trong trinh duyet ban,
+// vuot CORS + qua duoc challenge). Neu khong co userscript thi lui ve Proxy URL.
+let BRIDGE=false; const bridgeWaiters=new Map(); let bridgeSeq=0;
+window.addEventListener("message", e=>{
+  const d=e.data; if(!d || typeof d!=="object") return;
+  if(d.__pawcrawl==="ready"){ if(!BRIDGE){ BRIDGE=true; onBridgeReady(); } return; }
+  if(d.__pawcrawl==="reply"){ const w=bridgeWaiters.get(d.id); if(w){ bridgeWaiters.delete(d.id); w(d); } }
+});
+function bridgeFetch(url){
+  return new Promise((resolve,reject)=>{
+    const id="r"+(++bridgeSeq);
+    const to=setTimeout(()=>{ bridgeWaiters.delete(id); reject(new Error("userscript không phản hồi")); }, 65000);
+    bridgeWaiters.set(id, d=>{
+      clearTimeout(to);
+      if(d.ok){
+        try{ resolve(JSON.parse(d.body)); }
+        catch(e){ reject(new Error("Trả về không phải JSON (có thể bị challenge) — mở "+host()+" một lần trong trình duyệt rồi thử lại.")); }
+      } else reject(new Error("API "+(d.status||0)+(d.error?" — "+d.error:"")));
+    });
+    window.postMessage({__pawcrawl:"fetch", id, url}, "*");
+  });
+}
+
 function viaProxy(url){
   const p = CFG.proxy.trim().replace(/\/+$/,"");
-  if(!p) return url; // se loi CORS - da canh bao truoc
+  if(!p) return url;
   return p + "?u=" + enc(url);
 }
-const sleep = ms => new Promise(r=>setTimeout(r,ms));
 async function apiJson(url, tries=3){
-  if(!CFG.proxy.trim()) throw new Error("Chưa đặt Proxy URL (⚙ Cấu hình).");
+  // 1) qua userscript neu co
+  if(BRIDGE){
+    let last;
+    for(let i=0;i<tries;i++){
+      try{ return await bridgeFetch(url); }
+      catch(e){ last=e; if(i<tries-1) await sleep(700*(i+1)); }
+    }
+    throw last;
+  }
+  // 2) lui ve proxy neu da dat
+  if(!CFG.proxy.trim())
+    throw new Error("Chưa có userscript và chưa đặt Proxy URL.\nKhuyến nghị: cài userscript pawcrawl-bridge (⚙ Cấu hình có hướng dẫn).");
   let last="";
   for(let i=0;i<tries;i++){
     let r;
     try{ r = await fetch(viaProxy(url), {headers:{Accept:"application/json"}}); }
     catch(e){ last="mạng lỗi: "+e.message; await sleep(600*(i+1)); continue; }
     if(r.ok) return r.json();
-    // pawchive chặn theo nhịp: 404/429/403/503 thường là bị giới hạn tạm -> thử lại
-    if([404,429,403,502,503].includes(r.status) && i<tries-1){
-      last="API "+r.status;
-      await sleep(900*(i+1)); continue;
-    }
+    if([404,429,403,502,503].includes(r.status) && i<tries-1){ last="API "+r.status; await sleep(900*(i+1)); continue; }
     let body=""; try{ body=(await r.text()).slice(0,160); }catch{}
     throw new Error("API "+r.status+" — "+url + (body?("\n"+body):""));
   }
-  throw new Error(last+" (pawchive chặn nhịp truy cập) — "+url+"\nĐợi một lúc rồi thử lại, hoặc giảm số post nạp.");
+  throw new Error(last+" (proxy bị pawchive chặn) — dùng userscript sẽ ổn định hơn.\n"+url);
 }
 function apiBase(){ return "https://"+host()+"/api/v1"; }
 function fileUrl(path, name){ return "https://file."+host()+"/data"+path+"?f="+enc(name||""); }
@@ -557,12 +598,19 @@ function switchTab(name){
 }
 $$(".tabs button").forEach(b=> b.onclick=()=>switchTab(b.dataset.tab));
 
+function updateConnState(){
+  $("#bridgeOk").classList.toggle("hide", !BRIDGE);
+  // chi canh bao khi vua khong co userscript vua khong co proxy
+  $("#needProxy").classList.toggle("hide", BRIDGE || !!CFG.proxy.trim());
+}
+function onBridgeReady(){ log("✓ userscript pawcrawl-bridge đã kết nối."); updateConnState(); }
+
 $("#btnCfg").onclick=()=>$("#cfg").classList.toggle("hide");
 $("#saveCfg").onclick=()=>{
   CFG.proxy=$("#proxy").value.trim(); CFG.host=$("#host").value;
-  $("#needProxy").classList.toggle("hide", !!CFG.proxy);
   $("#cfg").classList.add("hide");
   CREATOR_INDEX=null; // host co the doi
+  updateConnState();
   log("Đã lưu cấu hình.");
 };
 
@@ -624,7 +672,11 @@ $("#favImport").onclick=()=>{
 (function init(){
   $("#proxy").value = CFG.proxy;
   $("#host").value = CFG.host;
-  $("#needProxy").classList.toggle("hide", !!CFG.proxy);
+  updateConnState();
+  // hoi tham userscript vai lan (phong khi no nap sau trang)
+  let pings=0;
+  const ping=()=>{ window.postMessage({__pawcrawl:"ping"},"*"); if(++pings<5 && !BRIDGE) setTimeout(ping,500); };
+  ping();
   if(!hasFS){
     log("Trình duyệt không hỗ trợ chọn thư mục (File System Access). "+
         "File sẽ tải về thư mục Downloads mặc định. Dùng Chrome/Edge để chọn thư mục.");
